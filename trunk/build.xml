@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<project  name="lhc-hwc-acctesting-scheduling" default="default">
+  <!--
+     Defines project variables
+  -->
+  <property file="product.properties"/>
+  <!--
+     import the standard target from cmmnbuild
+  -->
+  <property environment="env"/>
+  <property name="cmmnbuild.home"       value="${env.CMMNBUILD_HOME}"/>
+  <property name="cmmnbuild.targets"    location="${cmmnbuild.home}/targets.xml"/>
+  <import file="${cmmnbuild.targets}"/>
+</project>
