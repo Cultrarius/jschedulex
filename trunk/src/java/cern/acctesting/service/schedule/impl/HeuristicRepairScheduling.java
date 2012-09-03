@@ -50,6 +50,12 @@ public class HeuristicRepairScheduling {
         return schedule(itemsToSchedule, Collections.<ScheduledItem> emptyList());
     }
 
+    /**
+     * The main entry point for scheduling.
+     * @param itemsToSchedule all the items that shall be scheduled. These do not contain the fixed scheduled items.
+     * @param fixedItems the items in the scheduling plan, that must not be moved by the scheduler.
+     * @return the plan created by scheduling the given items by using the constraints from the {@link ViolationsManager}.
+     */
     public SchedulePlan schedule(Collection<ItemToSchedule> itemsToSchedule, Collection<ScheduledItem> fixedItems) {
         backsteps = 0;
         snapshots.clear();
