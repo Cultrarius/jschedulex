@@ -22,8 +22,10 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Hashtable;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 
@@ -39,8 +41,10 @@ public class HeuristicRepairScheduling {
     private final ConfigurationsManager configurationsManager;
     private final List<Collection<ScheduledItem>> snapshots;
     private int backsteps;
+    private boolean cachingResultPlan;
 
     public HeuristicRepairScheduling(ViolationsManager manager) {
+	cachingResultPlan = true;
 	violationsManager = manager;
 	configurationsManager = new ConfigurationsManager(violationsManager);
 	snapshots = new ArrayList<Collection<ScheduledItem>>();
@@ -315,6 +319,7 @@ public class HeuristicRepairScheduling {
     }
 
     private void createStartPlan(Collection<ItemToSchedule> itemsToSchedule, Collection<ScheduledItem> fixedItems) {
+	SchedulePlan oldPlan = cachingResultPlan ? plan : null;
 	plan = new SchedulePlan();
 
 	// @formatter:off
@@ -326,48 +331,101 @@ public class HeuristicRepairScheduling {
          * - as before, but inverse (small to big) 
          * - shuffle them and place them to the current possible end
          */
-         // @formatter:off
-        
-        for (ScheduledItem fixedItem : fixedItems) {
-            plan.schedule(fixedItem);
-            plan.fixateItem(fixedItem);
-        }
-        
+         // @formatter:on
 
-        Map<Lane, Integer> maximumValues = new HashMap<Lane, Integer>();
-        for (ItemToSchedule itemToSchedule : itemsToSchedule) {
-            int start = getPossibleStart(maximumValues, itemToSchedule);
-            ScheduledItem scheduledItem = plan.add(itemToSchedule, start);
-            updateMaxLaneValues(maximumValues, scheduledItem);
-        }
-        
-        // take a snapshot
-        snapshots.add(plan.getScheduledItems());
+	for (ScheduledItem fixedItem : fixedItems) {
+	    plan.schedule(fixedItem);
+	    plan.fixateItem(fixedItem);
+	}
+
+	Map<Lane, Integer> maximumValues = new HashMap<Lane, Integer>();
+	Set<ItemToSchedule> scheduledFromOldPlan = new HashSet<ItemToSchedule>();
+	// initialize the new plan from the old one - if one small changes are necessary then this will greatly speed up
+	// the computation
+	if (oldPlan != null && cachingResultPlan) {
+	    Map<Integer, ItemToSchedule> newItemsMap = new HashMap<Integer, ItemToSchedule>();
+	    for (ItemToSchedule item : itemsToSchedule) {
+		newItemsMap.put(item.getId(), item);
+	    }
+
+	    List<ScheduledItem> oldScheduledItems = oldPlan.getScheduledItems();
+	    for (ScheduledItem oldScheduledItem : oldScheduledItems) {
+		ItemToSchedule oldItem = oldScheduledItem.getItemToSchedule();
+		ItemToSchedule newItem = newItemsMap.get(oldItem.getId());
+		if (oldItem.equals(newItem)) {
+		    ScheduledItem scheduledItem = plan.add(newItem, oldScheduledItem.getStart());
+		    updateMaxLaneValues(maximumValues, scheduledItem);
+		    scheduledFromOldPlan.add(newItem);
+		}
+	    }
+	}
+
+	for (ItemToSchedule itemToSchedule : itemsToSchedule) {
+	    if (scheduledFromOldPlan.contains(itemToSchedule)) {
+		continue;
+	    }
+	    int start = getPossibleStart(maximumValues, itemToSchedule);
+	    ScheduledItem scheduledItem = plan.add(itemToSchedule, start);
+	    updateMaxLaneValues(maximumValues, scheduledItem);
+	}
+
+	// take a snapshot
+	snapshots.add(plan.getScheduledItems());
     }
 
     private void updateMaxLaneValues(Map<Lane, Integer> maximumValues, ScheduledItem scheduledItem) {
-        for (Lane lane : scheduledItem.getItemToSchedule().getAffectedLanes()) {
-            maximumValues.put(lane, scheduledItem.getStart() + scheduledItem.getItemToSchedule().getDuration(lane));
-        }
+	for (Lane lane : scheduledItem.getItemToSchedule().getAffectedLanes()) {
+	    maximumValues.put(lane, scheduledItem.getStart() + scheduledItem.getItemToSchedule().getDuration(lane));
+	}
     }
 
     private int getPossibleStart(Map<Lane, Integer> maximumValues, ItemToSchedule itemToSchedule) {
-        int start = 0;
-        for (Lane lane : itemToSchedule.getAffectedLanes()) {
-            Integer currentMaximum = maximumValues.get(lane);
-            if (currentMaximum != null && currentMaximum > start) {
-                start = currentMaximum;
-            }
-        }
-        return start;
+	int start = 0;
+	for (Lane lane : itemToSchedule.getAffectedLanes()) {
+	    Integer currentMaximum = maximumValues.get(lane);
+	    if (currentMaximum != null && currentMaximum > start) {
+		start = currentMaximum;
+	    }
+	}
+	return start;
     }
 
+    /**
+     * After each successful movement operation the scheduler will take a snapshot of the current configuration of all the scheduled items.
+     * This method returns a list of these snapshots in a chronological order. This is very helpful for debugging and to visualize the
+     * workings of the scheduler.
+     * 
+     * @return a list of all the snapshots taken during the scheduling process
+     */
     public List<Collection<ScheduledItem>> getSnapshots() {
-        return new ArrayList<Collection<ScheduledItem>>(snapshots);
+	return new ArrayList<Collection<ScheduledItem>>(snapshots);
     }
 
+    /**
+     * @return the number of backsteps the scheduler had to take while trying to solve the scheduling problem. This method is only
+     *         interesting for debug reasons, so do not bother with it.
+     */
     public int getBacksteps() {
-        return backsteps;
+	return backsteps;
+    }
+
+    /**
+     * @return <code>true</code> if the scheduler reuses the previous result to start the calculations with, <code>false</code> otherwise
+     */
+    public boolean isCachingResultPlan() {
+	return cachingResultPlan;
+    }
+
+    /**
+     * This method controls if the scheduler should cache each result to determine the starting plan of the next scheduling run. By default,
+     * this value is set to true. If each scheduling run contains vastly different items to schedule then this should be set to false.
+     * 
+     * @param cachingResultPlan
+     *            <code>true</code> if the scheduler should reuse the previous result to start the calculations with, <code>false</code>
+     *            otherwise
+     */
+    public void setCachingResultPlan(boolean cachingResultPlan) {
+	this.cachingResultPlan = cachingResultPlan;
     }
 
 }
