@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
@@ -199,6 +200,22 @@ public class HeuristicRepairSchedulingTest {
         assertEquals(itemToSchedule, result.getScheduledItems().get(0).getItemToSchedule());
         assertEquals(42, result.getMakespan());
     }
+    
+    @Test
+    public void testScheduleNoConstraint2Times() {
+        ArrayList<ScheduledItem> fixedItems = new ArrayList<ScheduledItem>();
+        Map<Lane, Integer> durations = new HashMap<Lane, Integer>();
+        durations.put(new Lane(0), 42);
+        ArrayList<ItemToSchedule> items = new ArrayList<ItemToSchedule>();
+        ItemToSchedule itemToSchedule = new ItemToSchedule(1, durations, items);
+        items.add(itemToSchedule);
+        noConstraintScheduling.schedule(items, fixedItems);
+        SchedulePlan result = noConstraintScheduling.schedule(items, fixedItems);
+
+        assertEquals(1, result.getScheduledItems().size());
+        assertEquals(itemToSchedule, result.getScheduledItems().get(0).getItemToSchedule());
+        assertEquals(42, result.getMakespan());
+    }
 
     @Test(expected = SchedulingException.class)
     public void testScheduleUnsatisfiable() {
@@ -297,6 +314,45 @@ public class HeuristicRepairSchedulingTest {
         assertEquals(items.size() + fixedItems.size(), result.getScheduledItems().size());
         assertEquals(370, result.getMakespan());
         assertTrue(allConstraintsSatisfied(result));
+    }
+    
+    @Test
+    public void testScheduleSimpleWithConstraint3Rescheduled() {
+        // some different items, none of them collide, but one can be moved to the front, reducing the makespan
+        ArrayList<ScheduledItem> fixedItems = new ArrayList<ScheduledItem>();
+        final ArrayList<ItemToSchedule> items = new ArrayList<ItemToSchedule>();
+
+        Map<Lane, Integer> durations = new HashMap<Lane, Integer>();
+        durations.put(new Lane(0), 22);
+        items.add(new ItemToSchedule(1, durations, new ArrayList<ItemToSchedule>()));
+
+        durations.clear();
+        durations.put(new Lane(1), 130);
+        items.add(new ItemToSchedule(2, durations, new ArrayList<ItemToSchedule>()));
+
+        durations.clear();
+        durations.put(new Lane(1), 240);
+        durations.put(new Lane(2), 140);
+        items.add(new ItemToSchedule(3, durations, new ArrayList<ItemToSchedule>()));
+
+        durations.clear();
+        durations.put(new Lane(2), 70);
+        items.add(new ItemToSchedule(4, durations, new ArrayList<ItemToSchedule>()));
+
+        durations.clear();
+        durations.put(new Lane(2), 80);
+        items.add(new ItemToSchedule(5, durations, new ArrayList<ItemToSchedule>()));
+        durations.clear();
+        durations.put(new Lane(3), 300);
+        items.add(new ItemToSchedule(6, durations, new ArrayList<ItemToSchedule>()));
+
+        SchedulePlan result1 = scheduling.schedule(items, fixedItems);
+        SchedulePlan result2 = scheduling.schedule(items, fixedItems);
+
+        assertEquals(items.size() + fixedItems.size(), result2.getScheduledItems().size());
+        assertEquals(370, result2.getMakespan());
+        assertEquals(result1.getScheduledItems(), result2.getScheduledItems());
+        assertTrue(allConstraintsSatisfied(result2));
     }
 
     @Test
