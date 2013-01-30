@@ -22,7 +22,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Hashtable;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -35,6 +34,16 @@ import cern.acctesting.service.schedule.ScheduledItem;
 import cern.acctesting.service.schedule.exception.SchedulingException;
 import cern.acctesting.service.schedule.impl.ViolationsManager.Violator;
 
+/**
+ * This class implements a scheduling algorithm to quickly solve a constrained scheduling problem. This does so by using a heuristic
+ * approach as described in the following paper: <a href="http://cds.cern.ch/record/1463647">cds.cern.ch</a><br>
+ * Basically, it tries to move the scheduled objects around until all the constraints are fulfilled. It is not guaranteed to find a solution
+ * if one exists, nor is it guaranteed to do so fast.<br>
+ * But for most cases, this algorithm performs a lot better than classical search algorithms.
+ * 
+ * @author Michael Galetzka
+ * 
+ */
 public class HeuristicRepairScheduling {
     private SchedulePlan plan;
     private final ViolationsManager violationsManager;
@@ -43,6 +52,12 @@ public class HeuristicRepairScheduling {
     private int backsteps;
     private boolean cachingResultPlan;
 
+    /**
+     * Creates a new instance of the scheduler using the constraints of the given {@link ViolationsManager}.
+     * 
+     * @param manager
+     *            the manager holding the constraints used to create all future schedules
+     */
     public HeuristicRepairScheduling(ViolationsManager manager) {
 	cachingResultPlan = true;
 	violationsManager = manager;
@@ -68,7 +83,8 @@ public class HeuristicRepairScheduling {
      * @param itemsToSchedule
      *            all the items that shall be scheduled. These do not contain the fixed scheduled items.
      * @param fixedItems
-     *            the items in the scheduling plan, that must not be moved by the scheduler.
+     *            the items in the scheduling plan, that must not be moved by the scheduler. For example, this might be tasks that have
+     *            already been started but must be reflected in the schedule.
      * @return the plan created by scheduling the given items by using the constraints from the {@link ViolationsManager}.
      */
     public SchedulePlan schedule(Collection<ItemToSchedule> itemsToSchedule, Collection<ScheduledItem> fixedItems) {
@@ -82,6 +98,10 @@ public class HeuristicRepairScheduling {
 	return plan;
     }
 
+    /**
+     * This method is more or less the "core" of the scheduler. It moves the items violating one or more constraints around until all
+     * constraints are satisfied.
+     */
     private void satisfyConstraints() {
 	boolean hardConstraintsSatisfied = false;
 	Violator violator = violationsManager.getBiggestViolator(null);
@@ -142,6 +162,10 @@ public class HeuristicRepairScheduling {
 	}
     }
 
+    /**
+     * This method is called if the scheduler has at least one hard constraint violated, but cannot find any possible move to improve the
+     * situation. Most of the time this is a local optimum created by a chain of dependent items that are scheduled in the wrong order.
+     */
     private void escapeFromLocalOptimum() {
 	Violator violator = violationsManager.getBiggestViolator(null);
 	configurationsManager.resetPlanConfigurations();
@@ -215,6 +239,12 @@ public class HeuristicRepairScheduling {
 	}
     }
 
+    /**
+     * This class is used to build the tree when trying to escape a local optimum.
+     * 
+     * @author Michael
+     * 
+     */
     private class DependencyNode implements Comparable<DependencyNode> {
 
 	private final ScheduledItem scheduledItem;
@@ -318,6 +348,15 @@ public class HeuristicRepairScheduling {
 	}
     }
 
+    /**
+     * Creates the start plan for the scheduler. This is a very important step, because the better the start plan, the faster will the
+     * scheduling algorithm solve it. However, creating a good start plan is almost as hard as scheduling all of the items altogether.
+     * 
+     * @param itemsToSchedule
+     *            all of the items that need to be scheduled and should be aligned by this method
+     * @param fixedItems
+     *            these items must be included in the plan, but must not be moved as they already have a fixed place
+     */
     private void createStartPlan(Collection<ItemToSchedule> itemsToSchedule, Collection<ScheduledItem> fixedItems) {
 	SchedulePlan oldPlan = cachingResultPlan ? plan : null;
 	plan = new SchedulePlan();
@@ -426,6 +465,14 @@ public class HeuristicRepairScheduling {
      */
     public void setCachingResultPlan(boolean cachingResultPlan) {
 	this.cachingResultPlan = cachingResultPlan;
+    }
+
+    /**
+     * This method clears the cached result plan so the next scheduling run will not be based on it. Please note that caching can be
+     * disabled altogether with the {@code setCachingResultPlan} method.
+     */
+    public void clearCachedResultPlan() {
+	plan = null;
     }
 
 }
