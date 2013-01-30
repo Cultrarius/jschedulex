@@ -31,6 +31,8 @@ import java.util.TreeSet;
 import cern.acctesting.service.schedule.ItemToSchedule;
 import cern.acctesting.service.schedule.Lane;
 import cern.acctesting.service.schedule.ScheduledItem;
+import cern.acctesting.service.schedule.constraint.ItemPairConstraint;
+import cern.acctesting.service.schedule.constraint.SingleItemConstraint;
 import cern.acctesting.service.schedule.exception.SchedulingException;
 import cern.acctesting.service.schedule.impl.ViolationsManager.Violator;
 
@@ -63,6 +65,18 @@ public class HeuristicRepairScheduling {
 	violationsManager = manager;
 	configurationsManager = new ConfigurationsManager(violationsManager);
 	snapshots = new ArrayList<Collection<ScheduledItem>>();
+    }
+
+    /**
+     * Creates a new instance of the scheduler using the given constraints to schedule items.
+     * 
+     * @param singleConstraints
+     *            all the constraints that apply to single items
+     * @param pairConstraints
+     *            all the constraints that apply to a pair of items
+     */
+    public HeuristicRepairScheduling(List<SingleItemConstraint> singleConstraints, List<ItemPairConstraint> pairConstraints) {
+	this(new ViolationsManager(singleConstraints, pairConstraints));
     }
 
     /**
