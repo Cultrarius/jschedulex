@@ -20,7 +20,6 @@ package cern.acctesting.service.schedule.impl;
 import java.util.List;
 
 import cern.acctesting.service.schedule.impl.ViolationsManager.PartnerUpdate;
-import cern.acctesting.service.schedule.impl.ViolationsManager.Violator;
 
 public class ViolatorUpdate {
 

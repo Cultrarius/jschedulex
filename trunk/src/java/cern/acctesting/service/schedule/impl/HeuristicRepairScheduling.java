@@ -34,7 +34,6 @@ import cern.acctesting.service.schedule.ScheduledItem;
 import cern.acctesting.service.schedule.constraint.ItemPairConstraint;
 import cern.acctesting.service.schedule.constraint.SingleItemConstraint;
 import cern.acctesting.service.schedule.exception.SchedulingException;
-import cern.acctesting.service.schedule.impl.ViolationsManager.Violator;
 
 /**
  * This class implements a scheduling algorithm to quickly solve a constrained scheduling problem. This does so by using a heuristic

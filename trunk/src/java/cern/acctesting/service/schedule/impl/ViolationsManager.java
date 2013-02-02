@@ -47,13 +47,13 @@ import cern.acctesting.service.schedule.impl.Predictor.ConflictPrediction;
  */
 public class ViolationsManager {
 
-    private final List<SingleItemConstraint> singleConstraints;
-    private final List<ItemPairConstraint> pairConstraints;
+    protected final List<SingleItemConstraint> singleConstraints;
+    protected final List<ItemPairConstraint> pairConstraints;
 
     /**
      * The constraint map defines which items are connected to other items through one or more constraints.
      */
-    private final Map<ItemToSchedule, Set<ConstraintPartner>> constraintMap;
+    protected final Map<ItemToSchedule, Set<ConstraintPartner>> constraintMap;
 
     /**
      * The violationsTree is an ordered set of all the constraint violators (ordered by their violation value). It is similar to an ordered
@@ -128,7 +128,7 @@ public class ViolationsManager {
 		checkPairConstraints(item, plan, pairs, false);
 	    }
 
-	    Violator violator = new Violator(item);
+	    Violator violator = new Violator(item, this);
 	    violationsTree.add(violator);
 	    violationsMapping.put(itemToSchedule, violator);
 	}
@@ -173,6 +173,21 @@ public class ViolationsManager {
 	constraintMap.put(item1, pairs);
     }
 
+    /**
+     * This method checks if the item provided with {@code newItem} can be rescheduled in the {@link SchedulePlan} {@code plan}. This method
+     * is merely checking if such a rescheduling would be possible and what it would mean for the constriant violation values of the
+     * involved items. This method does not automatically reschedule the item if it is possible to do so. It returns an items that contains
+     * all information necessary to efficiently reschedule the item and update all constraint ciolations accordingly.
+     * 
+     * @param newItem
+     *            the new scheduled item to be checked against the given plan
+     * @param plan
+     *            the plan the item should be rescheduled in
+     * @return a {@link ViolatorUpdate} object containing all the information about the rescheduling and the changes to the constraint
+     *         violations
+     * @throws ViolatorUpdateInvalid
+     *             is thrown when the rescheduling is not possible because rescheduling would lead to bigger contraint violations
+     */
     public ViolatorUpdate tryViolatorUpdate(ScheduledItem newItem, SchedulePlan plan) throws ViolatorUpdateInvalid {
 	ItemToSchedule itemToSchedule = newItem.getItemToSchedule();
 	Violator violator = violationsMapping.get(itemToSchedule);
@@ -186,7 +201,7 @@ public class ViolationsManager {
 	    checkUpdateValid(violator, newValues.hardViolationsValue + prediction.getDefinedHardConflictValue(),
 		    newValues.softViolationsValue);
 	}
-	
+
 	Set<ConstraintPartner> partners = constraintMap.get(itemToSchedule);
 	List<PartnerUpdate> partnerUpdates = new ArrayList<PartnerUpdate>(partners == null ? 0 : partners.size());
 	if (partners != null) {
@@ -198,8 +213,7 @@ public class ViolationsManager {
 	    }
 	}
 
-	Violator updatedViolator = new Violator(newItem, newValues.hardViolationsValue, newValues.softViolationsValue);
-
+	Violator updatedViolator = new Violator(newItem, newValues.hardViolationsValue, newValues.softViolationsValue, this);
 	return new ViolatorUpdate(updatedViolator, partnerUpdates);
     }
 
@@ -208,11 +222,11 @@ public class ViolationsManager {
 	Violator partnerViolator = violationsMapping.get(partner.getPartnerItem());
 	if (partnerViolator != null) {
 	    ViolatorValues oldParterValues = partner.violationsContainer.values;
-	    int newHardValue = partnerViolator.hardViolationsValue
+	    int newHardValue = partnerViolator.getHardViolationsValue()
 		    + (newPartnerValues.hardViolationsValue - oldParterValues.hardViolationsValue);
-	    int newSoftValue = partnerViolator.softViolationsValue
+	    int newSoftValue = partnerViolator.getSoftViolationsValue()
 		    + (newPartnerValues.softViolationsValue - oldParterValues.softViolationsValue);
-	    Violator updatedPartner = new Violator(partnerItem, newHardValue, newSoftValue);
+	    Violator updatedPartner = new Violator(partnerItem, newHardValue, newSoftValue, this);
 	    partnerUpdates.add(new PartnerUpdate(partner, newPartnerValues, partnerViolator, updatedPartner));
 	}
     }
@@ -270,7 +284,7 @@ public class ViolationsManager {
 
     public void updateViolator(ViolatorUpdate update) {
 	Violator newViolator = update.getUpdatedViolator();
-	ItemToSchedule itemToSchedule = newViolator.scheduledItem.getItemToSchedule();
+	ItemToSchedule itemToSchedule = newViolator.getScheduledItem().getItemToSchedule();
 	Violator oldViolator = violationsMapping.get(itemToSchedule);
 
 	for (PartnerUpdate partnerUpdate : update.getPartnerUpdates()) {
@@ -279,7 +293,7 @@ public class ViolationsManager {
 		violationsTree.add(partnerUpdate.updatedViolator);
 	    }
 
-	    violationsMapping.put(partnerUpdate.updatedViolator.scheduledItem.getItemToSchedule(), partnerUpdate.updatedViolator);
+	    violationsMapping.put(partnerUpdate.updatedViolator.getScheduledItem().getItemToSchedule(), partnerUpdate.updatedViolator);
 	}
 
 	// XXX maybe needed for fixed items?
@@ -340,19 +354,19 @@ public class ViolationsManager {
 	if (partnerViolator != null) {
 	    ViolatorValues newParterValues = container.values;
 	    if (!violationsTree.remove(partnerViolator)) { throw new SchedulingException("Fixed item?"); }
-	    int newHardValue = partnerViolator.hardViolationsValue
+	    int newHardValue = partnerViolator.getHardViolationsValue()
 		    + (newParterValues.hardViolationsValue - oldParterValues.hardViolationsValue);
-	    int newSoftValue = partnerViolator.softViolationsValue
+	    int newSoftValue = partnerViolator.getSoftViolationsValue()
 		    + (newParterValues.softViolationsValue - oldParterValues.softViolationsValue);
-	    Violator updatedViolator = new Violator(partnerItem, newHardValue, newSoftValue);
+	    Violator updatedViolator = new Violator(partnerItem, newHardValue, newSoftValue, this);
 	    violationsTree.add(updatedViolator);
 	    violationsMapping.put(partnerItem.getItemToSchedule(), updatedViolator);
 	}
     }
 
     private void checkUpdateValid(Violator violator, int newHardViolationsValue, int newSoftViolationsValue) throws ViolatorUpdateInvalid {
-	if (newHardViolationsValue > violator.hardViolationsValue
-		|| (newHardViolationsValue == violator.hardViolationsValue && newSoftViolationsValue > violator.softViolationsValue)) { throw new ViolatorUpdateInvalid(); }
+	if (newHardViolationsValue > violator.getHardViolationsValue()
+		|| (newHardViolationsValue == violator.getHardViolationsValue() && newSoftViolationsValue > violator.getSoftViolationsValue())) { throw new ViolatorUpdateInvalid(); }
     }
 
     private void checkPairConstraints(ScheduledItem scheduledItem, SchedulePlan plan, Set<ConstraintPartner> partners,
@@ -366,6 +380,16 @@ public class ViolationsManager {
 	}
     }
 
+    /**
+     * Returns the {@link Violator} with the biggest constraint violation value that is smaller than the value of {@code upperBound}. If
+     * {@code upperBound} is null then the biggest possible violator is returned. If there is no violator available then {@code null} is
+     * returned. This method is guaranteed to run in O(log(n)).
+     * 
+     * @param upperBound
+     *            If {@code null} then the biggest possible violator is returned, otherwise a violator with a value smaller than
+     *            {@code upperBound} is returned.
+     * @return the biggest possible violator or {@code null} if there is none.
+     */
     public Violator getBiggestViolator(Violator upperBound) {
 	return violationsTree.isEmpty() ? null : (upperBound == null ? violationsTree.last() : violationsTree.lower(upperBound));
     }
@@ -386,7 +410,7 @@ public class ViolationsManager {
 
     protected class ConstraintPartner {
 	private final ItemToSchedule partnerItem;
-	private final ViolationsContainer violationsContainer;
+	protected final ViolationsContainer violationsContainer;
 	private final List<ItemPairConstraint> constraints;
 
 	public ConstraintPartner(ItemToSchedule partnerItem, ViolationsContainer violationsContainer, List<ItemPairConstraint> constraints) {
@@ -404,9 +428,8 @@ public class ViolationsManager {
 	}
     }
 
-    private class ViolationsContainer {
-
-	private final ViolatorValues values;
+    protected class ViolationsContainer {
+	protected final ViolatorValues values;
 
 	public ViolationsContainer(List<ConstraintDecision> violations) {
 	    values = new ViolatorValues();
@@ -431,112 +454,6 @@ public class ViolationsManager {
 		    }
 		}
 	    }
-	}
-    }
-
-    public class Violator implements Comparable<Violator> {
-	private final ScheduledItem scheduledItem;
-	private int hardViolationsValue;
-	private int softViolationsValue;
-
-	public Violator(ScheduledItem scheduledItem) {
-	    this.scheduledItem = scheduledItem;
-	    checkSingleConstraints();
-	    getPairConstraintDecisions();
-	}
-
-	public Violator(ScheduledItem scheduledItem, int hardViolationsValue, int softViolationsValue) {
-	    this.scheduledItem = scheduledItem;
-	    this.hardViolationsValue = hardViolationsValue;
-	    this.softViolationsValue = softViolationsValue;
-	}
-
-	private void aggregate(ConstraintDecision decision) {
-	    if (!decision.isFulfilled()) {
-		if (decision.isHardConstraint()) {
-		    hardViolationsValue += decision.getViolationValue();
-		}
-		else {
-		    softViolationsValue += decision.getViolationValue();
-		}
-	    }
-	}
-
-	private void getPairConstraintDecisions() {
-	    Set<ConstraintPartner> partners = constraintMap.get(scheduledItem.getItemToSchedule());
-	    if (partners != null && !partners.isEmpty()) {
-		checkPartnerConstraints(partners);
-	    }
-	}
-
-	private void checkPartnerConstraints(Set<ConstraintPartner> partners) {
-	    for (ConstraintPartner partner : partners) {
-		ViolatorValues partnerValues = partner.violationsContainer.values;
-		hardViolationsValue += partnerValues.hardViolationsValue;
-		softViolationsValue += partnerValues.softViolationsValue;
-	    }
-	}
-
-	private void checkSingleConstraints() {
-	    for (SingleItemConstraint constraint : singleConstraints) {
-		aggregate(constraint.check(scheduledItem));
-	    }
-	}
-
-	@Override
-	public int hashCode() {
-	    return scheduledItem.hashCode();
-	}
-
-	@Override
-	public boolean equals(Object obj) {
-	    if (this == obj)
-		return true;
-	    if (obj == null)
-		return false;
-	    if (getClass() != obj.getClass())
-		return false;
-	    final Violator other = (Violator) obj;
-	    return scheduledItem.getItemToSchedule().getId() == other.scheduledItem.getItemToSchedule().getId();
-	}
-
-	@Override
-	public int compareTo(Violator o) {
-	    int result = (hardViolationsValue < o.hardViolationsValue ? -1 : (hardViolationsValue == o.hardViolationsValue ? 0 : 1));
-	    if (result == 0) {
-		result = (softViolationsValue < o.softViolationsValue ? -1 : (softViolationsValue == o.softViolationsValue ? 0 : 1));
-	    }
-	    if (result == 0) {
-		int summary = scheduledItem.getItemToSchedule().getDurationSummary();
-		int otherSummary = o.scheduledItem.getItemToSchedule().getDurationSummary();
-		result = (summary > otherSummary ? -1 : (summary == otherSummary ? 0 : 1));
-	    }
-	    if (result == 0) {
-		int id = scheduledItem.getItemToSchedule().getId();
-		int otherId = o.scheduledItem.getItemToSchedule().getId();
-		result = (id < otherId ? -1 : (id == otherId ? 0 : 1));
-	    }
-	    return result;
-	}
-
-	public ScheduledItem getScheduledItem() {
-	    return scheduledItem;
-	}
-
-	public int getHardViolationsValue() {
-	    return hardViolationsValue;
-	}
-
-	public void setHardViolationsValue(int hardViolationsValue) {
-	    this.hardViolationsValue = hardViolationsValue;
-	}
-
-	public int getSoftViolationsValue() {
-	    return softViolationsValue;
-	}
-
-	public void setSoftViolationsValue(int softViolationsValue) {
-	    this.softViolationsValue = softViolationsValue;
 	}
     }
 

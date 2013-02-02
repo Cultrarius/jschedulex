@@ -19,7 +19,6 @@ package cern.acctesting.service.schedule.impl;
 
 import cern.acctesting.service.schedule.ScheduledItem;
 import cern.acctesting.service.schedule.exception.ViolatorUpdateInvalid;
-import cern.acctesting.service.schedule.impl.ViolationsManager.Violator;
 
 public class ConfigurationsManager {
 
