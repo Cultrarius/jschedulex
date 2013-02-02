@@ -62,6 +62,8 @@ public class ViolationsManager {
      */
     private final TreeSet<Violator> violationsTree;
     private final Map<ItemToSchedule, Violator> violationsMapping;
+
+    private boolean usingPrediction = true;
     private Predictor predictor;
 
     /**
@@ -179,9 +181,12 @@ public class ViolationsManager {
 
 	calculateSingleConstraintValues(newItem, violator, newValues);
 
-	ConflictPrediction prediction = predictor.predictConflicts(newItem);
-	checkUpdateValid(violator, newValues.hardViolationsValue + prediction.getDefinedHardConflictValue(), newValues.softViolationsValue);
-
+	if (usingPrediction) {
+	    ConflictPrediction prediction = predictor.predictConflicts(newItem);
+	    checkUpdateValid(violator, newValues.hardViolationsValue + prediction.getDefinedHardConflictValue(),
+		    newValues.softViolationsValue);
+	}
+	
 	Set<ConstraintPartner> partners = constraintMap.get(itemToSchedule);
 	List<PartnerUpdate> partnerUpdates = new ArrayList<PartnerUpdate>(partners == null ? 0 : partners.size());
 	if (partners != null) {
@@ -615,5 +620,13 @@ public class ViolationsManager {
 	initializeViolationTree(newPlan);
 
 	predictor.planHasBeenUpdated(oldPlan, newPlan);
+    }
+
+    public boolean isUsingPrediction() {
+	return usingPrediction;
+    }
+
+    public void setUsingPrediction(boolean usingPrediction) {
+	this.usingPrediction = usingPrediction;
     }
 }
