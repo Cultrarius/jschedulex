@@ -39,7 +39,8 @@ import cern.acctesting.service.schedule.exception.ViolatorUpdateInvalid;
 import cern.acctesting.service.schedule.impl.Predictor.ConflictPrediction;
 
 /**
- * This class is responsible for the management of all constraints and their violations by scheduled items.
+ * This class is responsible for the management of all constraints and their violations by scheduled items. It tries to manage constraint
+ * violations in an efficient way and also handles updates of the {@link SchedulePlan}.
  * 
  * @author Michael
  * 
@@ -49,7 +50,16 @@ public class ViolationsManager {
     private final List<SingleItemConstraint> singleConstraints;
     private final List<ItemPairConstraint> pairConstraints;
 
+    /**
+     * The constraint map defines which items are connected to other items through one or more constraints.
+     */
     private final Map<ItemToSchedule, Set<ConstraintPartner>> constraintMap;
+
+    /**
+     * The violationsTree is an ordered set of all the constraint violators (ordered by their violation value). It is similar to an ordered
+     * list, but it guarantees that an item can be contained at most once. In addition, it provides efficient log(n) operations to add and
+     * remove items.
+     */
     private final TreeSet<Violator> violationsTree;
     private final Map<ItemToSchedule, Violator> violationsMapping;
     private Predictor predictor;
@@ -71,7 +81,7 @@ public class ViolationsManager {
     }
 
     /**
-     * Initializes the manager with the given schedule plan. This is used to determine which items violate which constraints.
+     * Initializes the manager with the given {@link SchedulePlan}. This is used to determine which items violate which constraints.
      * 
      * @param plan
      *            the plan containing scheduled items
@@ -167,6 +177,62 @@ public class ViolationsManager {
 
 	ViolatorValues newValues = new ViolatorValues();
 
+	calculateSingleConstraintValues(newItem, violator, newValues);
+
+	ConflictPrediction prediction = predictor.predictConflicts(newItem);
+	checkUpdateValid(violator, newValues.hardViolationsValue + prediction.getDefinedHardConflictValue(), newValues.softViolationsValue);
+
+	Set<ConstraintPartner> partners = constraintMap.get(itemToSchedule);
+	List<PartnerUpdate> partnerUpdates = new ArrayList<PartnerUpdate>(partners == null ? 0 : partners.size());
+	if (partners != null) {
+	    for (ConstraintPartner partner : partners) {
+		ScheduledItem partnerItem = plan.getScheduledItem(partner.getPartnerItem());
+		ViolatorValues newPartnerValues = new ViolatorValues();
+		calculatePairConstraintValues(newItem, violator, newValues, partner, partnerItem, newPartnerValues);
+		updatePartnerViolator(partnerUpdates, partner, partnerItem, newPartnerValues);
+	    }
+	}
+
+	Violator updatedViolator = new Violator(newItem, newValues.hardViolationsValue, newValues.softViolationsValue);
+
+	return new ViolatorUpdate(updatedViolator, partnerUpdates);
+    }
+
+    private void updatePartnerViolator(List<PartnerUpdate> partnerUpdates, ConstraintPartner partner, ScheduledItem partnerItem,
+	    ViolatorValues newPartnerValues) {
+	Violator partnerViolator = violationsMapping.get(partner.getPartnerItem());
+	if (partnerViolator != null) {
+	    ViolatorValues oldParterValues = partner.violationsContainer.values;
+	    int newHardValue = partnerViolator.hardViolationsValue
+		    + (newPartnerValues.hardViolationsValue - oldParterValues.hardViolationsValue);
+	    int newSoftValue = partnerViolator.softViolationsValue
+		    + (newPartnerValues.softViolationsValue - oldParterValues.softViolationsValue);
+	    Violator updatedPartner = new Violator(partnerItem, newHardValue, newSoftValue);
+	    partnerUpdates.add(new PartnerUpdate(partner, newPartnerValues, partnerViolator, updatedPartner));
+	}
+    }
+
+    private void calculatePairConstraintValues(ScheduledItem newItem, Violator violator, ViolatorValues newValues,
+	    ConstraintPartner partner, ScheduledItem partnerItem, ViolatorValues newPartnerValues) throws ViolatorUpdateInvalid {
+	for (ItemPairConstraint constraint : partner.getConstraints()) {
+	    ConstraintDecision decision = constraint.check(newItem, partnerItem);
+	    if (!decision.isFulfilled()) {
+		if (decision.isHardConstraint()) {
+		    newValues.hardViolationsValue += decision.getViolationValue();
+		    newPartnerValues.hardViolationsValue += decision.getViolationValue();
+		}
+		else {
+		    newValues.softViolationsValue += decision.getViolationValue();
+		    newPartnerValues.softViolationsValue += decision.getViolationValue();
+		}
+
+		checkUpdateValid(violator, newValues.hardViolationsValue, newValues.softViolationsValue);
+	    }
+	}
+    }
+
+    private void calculateSingleConstraintValues(ScheduledItem newItem, Violator violator, ViolatorValues newValues)
+	    throws ViolatorUpdateInvalid {
 	for (SingleItemConstraint constraint : singleConstraints) {
 	    ConstraintDecision decision = constraint.check(newItem);
 	    if (!decision.isFulfilled()) {
@@ -180,49 +246,6 @@ public class ViolationsManager {
 
 	    checkUpdateValid(violator, newValues.hardViolationsValue, newValues.softViolationsValue);
 	}
-
-	ConflictPrediction prediction = predictor.predictConflicts(newItem);
-	checkUpdateValid(violator, newValues.hardViolationsValue + prediction.getDefinedHardConflictValue(), newValues.softViolationsValue);
-
-	Set<ConstraintPartner> partners = constraintMap.get(itemToSchedule);
-	List<PartnerUpdate> partnerUpdates = new ArrayList<PartnerUpdate>(partners == null ? 0 : partners.size());
-	if (partners != null) {
-	    for (ConstraintPartner partner : partners) {
-		ScheduledItem partnerItem = plan.getScheduledItem(partner.getPartnerItem());
-		ViolatorValues newPartnerValues = new ViolatorValues();
-
-		for (ItemPairConstraint constraint : partner.getConstraints()) {
-		    ConstraintDecision decision = constraint.check(newItem, partnerItem);
-		    if (!decision.isFulfilled()) {
-			if (decision.isHardConstraint()) {
-			    newValues.hardViolationsValue += decision.getViolationValue();
-			    newPartnerValues.hardViolationsValue += decision.getViolationValue();
-			}
-			else {
-			    newValues.softViolationsValue += decision.getViolationValue();
-			    newPartnerValues.softViolationsValue += decision.getViolationValue();
-			}
-
-			checkUpdateValid(violator, newValues.hardViolationsValue, newValues.softViolationsValue);
-		    }
-		}
-
-		Violator partnerViolator = violationsMapping.get(partner.getPartnerItem());
-		if (partnerViolator != null) {
-		    ViolatorValues oldParterValues = partner.violationsContainer.values;
-		    int newHardValue = partnerViolator.hardViolationsValue
-			    + (newPartnerValues.hardViolationsValue - oldParterValues.hardViolationsValue);
-		    int newSoftValue = partnerViolator.softViolationsValue
-			    + (newPartnerValues.softViolationsValue - oldParterValues.softViolationsValue);
-		    Violator updatedPartner = new Violator(partnerItem, newHardValue, newSoftValue);
-		    partnerUpdates.add(new PartnerUpdate(partner, newPartnerValues, partnerViolator, updatedPartner));
-		}
-	    }
-	}
-
-	Violator updatedViolator = new Violator(newItem, newValues.hardViolationsValue, newValues.softViolationsValue);
-
-	return new ViolatorUpdate(updatedViolator, partnerUpdates);
     }
 
     protected class PartnerUpdate {
